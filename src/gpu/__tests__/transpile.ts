@@ -3,6 +3,7 @@ import { mockContext } from '../../mocks/context'
 import { parse } from '../../parser/parser'
 import { stripIndent } from '../../utils/formatters'
 import { transpileToGPU } from '../../gpu/gpu'
+import { VariableDeclaration } from 'estree'
 
 test('simple for loop gets transpiled correctly', () => {
   const code = stripIndent`
@@ -51,12 +52,29 @@ test('simple for loop with constant condition transpiled correctly', () => {
     `
   const context = mockContext(4, 'gpu')
   const program = parse(code, context)!
+  // console.log("program type: " + program.type)
+  // console.log("program sourceType: " + program.sourceType)
+  console.log("program body: " + program.body)
+
+  console.log("program body 0: " + program.body[0].type) // variable declaration
+  console.log("program body 0 kind: " + (program.body[0] as VariableDeclaration).kind) // let
+  console.log("program body 0 declarations: " + (program.body[0] as VariableDeclaration).declarations[0].type) // variable declarator
+  console.log("program body 0 declarations: " + (program.body[0] as VariableDeclaration).declarations[0].id.type) // identifier
+
+  console.log("program body 1: " + program.body[1].type)
+  console.log("program body 2: " + program.body[2].type)
+
+  // console.log("program comments: " + program.comments)
+  // console.log("program leading comments: " + program.leadingComments)
+  // console.log("program trailing comments: " + program.trailingComments)
   transpileToGPU(program)
   const transpiled = generate(program)
 
   const cnt = transpiled.match(/__createKernelSource/g)?.length
   expect(cnt).toEqual(1)
 })
+
+
 
 test('simple for loop with let condition transpiled correctly', () => {
   const code = stripIndent`
@@ -110,6 +128,7 @@ test('simple for loop with different end condition transpiled correctly', () => 
   expect(cnt).toEqual(1)
 })
 
+//TODO FAILING
 test('2 for loop case gets transpiled correctly', () => {
   const code = stripIndent`
     let res = [];
