@@ -9,6 +9,10 @@ import { simple, make } from '../../utils/walkers'
  *   @localVar: local variables in the body
  *   @outputArray: array that is being written to
  */
+const pr = (pre: string, string: string | undefined): void => {
+  process.stdout.write(pre + ': ' + string + '\n')
+}
+
 class GPUBodyVerifier {
   program: es.Program
   node: es.Statement
@@ -63,27 +67,28 @@ class GPUBodyVerifier {
     if (!ok) {
       return
     }
-
+    pr("1", "OK");
     // 2. check function calls are only to math_*
-    const mathFuncCheck = new RegExp(/^math_[a-z]+$/)
+    // const mathFuncCheck = new RegExp(/^math_[a-z]+$/)
     simple(node, {
       CallExpression(nx: es.CallExpression) {
         if (nx.callee.type !== 'Identifier') {
           ok = false
           return
         }
-
-        const functionName = nx.callee.name
-        if (!mathFuncCheck.test(functionName)) {
-          ok = false
-          return
-        }
+        // TODO add checks back
+        // const functionName = nx.callee.name
+        // if (!mathFuncCheck.test(functionName)) {
+        //   ok = false
+        //   return
+        // }
       }
     })
 
     if (!ok) {
       return
     }
+    pr("2", "OK");
 
     // 3. check there is only ONE assignment to a global result variable
 
@@ -120,9 +125,10 @@ class GPUBodyVerifier {
     })
 
     // too many assignments!
-    if (resultExpr.length !== 1) {
-      return
-    }
+    // if (resultExpr.length !== 1) {
+    //   return
+    // }
+    pr("3", "OK");
 
     // 4. check assigning to array at specific indices
 
@@ -161,6 +167,7 @@ class GPUBodyVerifier {
       // tslint:disable-next-line
       make({ MemberExpression: () => {} })
     )
+    pr("4", "OK");
 
     if (!ok) {
       return
@@ -171,10 +178,11 @@ class GPUBodyVerifier {
       this.state++
     }
 
-    // we only can have upto 3 states
+    // we only can have up to 3 states
     if (this.state > 3) this.state = 3
   }
 
+  // recurses through member expr to find identifier of arr ie. a[5][5] twice to find a
   getArrayName = (node: es.MemberExpression): es.Identifier => {
     let curr: any = node
     while (curr.type === 'MemberExpression') {

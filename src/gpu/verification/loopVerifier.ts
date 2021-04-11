@@ -52,6 +52,7 @@ class GPULoopVerifier {
       return false
     }
 
+    // in the for loop: let i=0 means that this.counter is i
     this.counter = initializer.id.name
 
     const set: es.Expression = initializer.init

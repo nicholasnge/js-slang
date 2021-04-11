@@ -49,6 +49,7 @@ import { forceIt } from './utils/operators'
 import { addInfiniteLoopProtection } from './infiniteLoops/InfiniteLoops'
 import { TimeoutError } from './errors/timeoutErrors'
 import { loadModule } from './modules/moduleLoader'
+import { generate } from 'astring'
 
 export interface IOptions {
   scheduler: 'preemptive' | 'async'
@@ -492,7 +493,7 @@ export async function runInContext(
           transpileToLazy(program)
           break
       }
-
+      console.log(generate(program))
       const temp = transpile(program, context, false)
       // some issues with formatting and semicolons and tslint so no destructure
       transpiled = temp.transpiled

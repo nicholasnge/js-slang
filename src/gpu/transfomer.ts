@@ -3,8 +3,16 @@ import { ancestor, simple, make } from '../utils/walkers'
 import * as create from '../utils/astCreator'
 import GPULoopVerifier from './verification/loopVerifier'
 import GPUBodyVerifier from './verification/bodyVerifier'
+import { BlockStatement, Identifier, ReturnStatement, VariableDeclaration } from 'estree'
+import { generate } from 'astring'
+
+
+const pr = (pre: string, string: string | undefined): void => {
+  process.stdout.write(pre + ': ' + string + '\n')
+}
 
 let currentKernelId = 0
+
 /*
  * GPU Transformer runs through the program and transpiles for loops to GPU code
  * Upon termination, the AST would be mutated accordingly
@@ -32,6 +40,7 @@ class GPUTransformer {
   localVar: Set<string>
   outerVariables: any
   targetBody: any
+  tempVarName = 'temp'
 
   constructor(program: es.Program, createKernelSource: es.Identifier) {
     this.program = program
@@ -56,7 +65,10 @@ class GPUTransformer {
           }
         }
       },
-      make({ ForStatement: () => {} })
+      make({
+        ForStatement: () => {
+        }
+      })
     )
     // tslint:enable
 
@@ -72,10 +84,11 @@ class GPUTransformer {
    * 5. Call __createKernelSource and assign it to our external variable
    */
   gpuTranspile = (node: es.ForStatement): number => {
+    // pr('gpu transpile node', node.body.loc?.start.line.toString())
     // initialize our class variables
     this.state = 0
-    this.counters = []
-    this.end = []
+    this.counters = [] // let i =0: i
+    this.end = [] // i <= 10: 10
 
     // 1. verification of outer loops + body
     this.checkOuterLoops(node)
@@ -86,10 +99,11 @@ class GPUTransformer {
 
     const verifier = new GPUBodyVerifier(this.program, this.innerBody, this.counters)
     if (verifier.state === 0) {
+      pr('VERIFIER STATE = 0', '')
       return 0
     }
 
-    this.state = verifier.state
+    this.state = verifier.state //number that indicates the dimensions you can parallize till (max 3)
     this.outputArray = verifier.outputArray
     this.localVar = verifier.localVar
 
@@ -100,6 +114,7 @@ class GPUTransformer {
     // 3. Build a AST Node of all outer variables
     const externEntries: [es.Literal, es.Expression][] = []
     for (const key in this.outerVariables) {
+      pr('outer variable key', key)
       if (this.outerVariables.hasOwnProperty(key)) {
         const val = this.outerVariables[key]
 
@@ -110,28 +125,14 @@ class GPUTransformer {
     }
 
     // 4. Change assignment in body to a return statement
-    const checker = verifier.getArrayName
-    const locals = this.localVar
-    ancestor(this.targetBody, {
-      AssignmentExpression(nx: es.AssignmentExpression, ancstor: es.Node[]) {
-        // assigning to local val, it's okay
-        if (nx.left.type === 'Identifier') {
-          return
-        }
-
-        if (nx.left.type !== 'MemberExpression') {
-          return
-        }
-
-        const id = checker(nx.left)
-        if (locals.has(id.name)) {
-          return
-        }
-
-        const sz = ancstor.length
-        create.mutateToReturnStatement(ancstor[sz - 2], nx.right)
-      }
-    })
+    // pr('target body', (this.targetBody as BlockStatement).body.length.toString())
+    const temp: Identifier = create.identifier(this.tempVarName)
+    const declarator = create.variableDeclarator(temp, create.literal(0)) // initialise to 0
+    const addToFront = create.variableDeclaration([declarator], 'let') as VariableDeclaration
+    const addToBack = create.returnStatement(temp) as ReturnStatement
+    (this.targetBody as BlockStatement).body.unshift(addToFront);
+    (this.targetBody as BlockStatement).body.push(addToBack)
+    const locals = this.localVar.add(this.tempVarName)
 
     // deep copy here (for runtime checks)
     const params: es.Identifier[] = []
@@ -156,9 +157,10 @@ class GPUTransformer {
       ],
       node.loc!
     )
-
+    // this one provides real fast stuff, but i think we cant use it
+    // const assn = create.assignmentExpression(verifier.outputArray, createKernelSourceCall)
+    // create.mutateToExpressionStatement(node, assn)
     create.mutateToExpressionStatement(node, createKernelSourceCall)
-
     return this.state
   }
 
@@ -166,23 +168,60 @@ class GPUTransformer {
   checkOuterLoops = (node: es.ForStatement) => {
     let currForLoop = node
     while (currForLoop.type === 'ForStatement') {
+      // check if the conditions for gpu are met
       const detector = new GPULoopVerifier(currForLoop)
+      pr('detector', detector.ok ? 'true' : 'false')
+
       if (!detector.ok) {
-        break
+        return
       }
 
       this.innerBody = currForLoop.body
-      this.counters.push(detector.counter)
-      this.end.push(detector.end)
+      this.counters.push(detector.counter) // counter is i in let i=0
+      this.end.push(detector.end) // end is the number that ends the for loop: <=10 means end = 10
+      // pr("loop inner body type", this.innerBody.type)
 
       if (this.innerBody.type !== 'BlockStatement') {
-        break
+        return
       }
 
-      if (this.innerBody.body.length > 1 || this.innerBody.body.length === 0) {
-        break
+      // we now accept length = 2 where one of them is the nested array initialisation
+      if (this.innerBody.body.length > 2 || this.innerBody.body.length === 0) {
+        return
       }
 
+      // this code checks if for the nested array initialisation and removes it, else not accepted
+      if (this.innerBody.body.length === 2) {
+        if (this.innerBody.body[0].type !== 'ExpressionStatement') return
+        const exprStmt = this.innerBody.body[0]
+        if (exprStmt.expression.type !== 'AssignmentExpression') return
+        const assnExpr = exprStmt.expression
+        if (assnExpr.right.type !== 'ArrayExpression' || assnExpr.left.type !== 'MemberExpression') return
+        let memberExpr = assnExpr.left
+        const arrayExpr = assnExpr.right
+        if (arrayExpr.elements.length !== 0) return
+        for (const c of this.counters) {
+          if ((memberExpr.property.type === 'Identifier') && ((memberExpr.property as Identifier).name === c)) {
+            if (memberExpr.object.type === 'MemberExpression') {
+              memberExpr = memberExpr.object
+            } else if (memberExpr.object.type === 'Identifier') {
+              // POTENTIAL BUG CAUSER: BEWARE (we are setting name of output array prematurely)
+              if (this.outputArray === undefined) {
+                this.outputArray = memberExpr.object.name
+              } else if (this.outputArray !== memberExpr.object.name) {
+                return
+              }
+              this.innerBody.body.shift()
+            } else {
+              return
+            }
+          } else {
+            return
+          }
+        }
+      }
+
+      // pr("loop inner body first line", this.innerBody.body[0].type)
       currForLoop = this.innerBody.body[0]
     }
   }
@@ -218,23 +257,42 @@ class GPUTransformer {
   // TODO: method can be more optimized
   getOuterVariables() {
     // set some local variables for walking
+    const state = this.state
     const curr = this.innerBody
     const localVar = this.localVar
     const counters = this.counters
     const output = this.outputArray.name
-
+    const tempVarName = this.tempVarName
+    const outputAdded = [false]
+    const isAfterReassignment = [false]
     const varDefinitions = {}
-    simple(curr, {
-      Identifier(node: es.Identifier) {
-        if (
-          localVar.has(node.name) ||
-          counters.includes(node.name) ||
-          node.name === output ||
-          node.name.startsWith('math_')
-        ) {
+
+    ancestor(curr, {
+      Identifier(node: es.Identifier, ancstor: es.Node[]) {
+        // CASE 1: identifier is the output array
+        // ACTION: change identifier to tempVarName (in order to support multiple references)
+        //       only if it is an assignment or after a reassignment (ie. changed already)
+        if (node.name === output) {
+          if (isAfterReassignment[0] || ancstor[ancstor.length - state - 2].type === 'AssignmentExpression') {
+            isAfterReassignment[0] = true
+            // ancstor.length -2 is the index of the exprStmt enveloping the assignment
+            create.mutateToIdentifier(ancstor[ancstor.length - state - 1], tempVarName)
+          } else if (!outputAdded[0]) {
+            outputAdded[0] = true
+            varDefinitions[output] = node
+          }
           return
         }
-
+        // CASE 2: identifier is local variable or counter of for loop
+        // ACTION:
+        if (localVar.has(node.name) || counters.includes(node.name)) {
+          return
+        }
+        // CASE 3: identifier is math_* function
+        // ACTION: Ignore (it will be converted to Math.* at runtime
+        if (ancstor[ancstor.length - 2].type === 'CallExpression' && node.name.startsWith('math_')) {
+          return
+        }
         varDefinitions[node.name] = node
       }
     })
@@ -251,6 +309,7 @@ class GPUTransformer {
  */
 export function gpuRuntimeTranspile(
   node: es.ArrowFunctionExpression,
+  extern: any,
   localNames: Set<string>
 ): es.BlockStatement {
   // Contains counters
@@ -271,6 +330,10 @@ export function gpuRuntimeTranspile(
       const term = functionName.split('_')[1]
       const args: es.Expression[] = nx.arguments as any
 
+      if (term == null) {
+        return
+      }
+
       create.mutateToCallExpression(
         nx,
         create.memberExpression(create.identifier('Math'), term),
@@ -287,7 +350,9 @@ export function gpuRuntimeTranspile(
   simple(body, {
     Identifier(nx: es.Identifier) {
       // ignore these names
+      // if (ignoredNames.has(nx.name) || localNames.has(nx.name)) {
       if (ignoredNames.has(nx.name) || localNames.has(nx.name)) {
+        console.log('nx name: ' + nx.name)
         return
       }
 
@@ -332,7 +397,7 @@ export function gpuRuntimeTranspile(
       )
     }
   })
-
+  console.log('body: ' + generate(body))
   return body
 }
 

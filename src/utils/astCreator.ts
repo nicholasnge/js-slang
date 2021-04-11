@@ -147,6 +147,26 @@ export const mutateToCallExpression = (
   node.arguments = args
 }
 
+export const mutateToVariableDeclaration = (
+  node: es.Node,
+  declarations: es.VariableDeclarator[],
+  kind: "var" | "let" | "const",
+) => {
+  node.type = 'VariableDeclaration'
+  node = node as es.VariableDeclaration
+  node.declarations = declarations
+  node.kind = kind
+}
+
+export const mutateToIdentifier = (
+  node: es.Node,
+  name: string
+) => {
+  node.type = 'Identifier'
+  node = node as es.Identifier
+  node.name = name
+}
+
 export const mutateToAssignmentExpression = (
   node: es.Node,
   left: es.Pattern,
@@ -304,11 +324,12 @@ export const arrowFunctionExpression = (
 
 export const variableDeclaration = (
   declarations: es.VariableDeclarator[],
+  kind?: "var" | "let" | "const",
   loc?: es.SourceLocation | null
 ): es.VariableDeclaration => ({
   type: 'VariableDeclaration',
-  kind: 'const',
   declarations,
+  kind: kind ? kind : 'const',
   loc
 })
 

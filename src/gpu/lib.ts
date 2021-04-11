@@ -1,47 +1,47 @@
 import { GPU } from 'gpu.js'
-import { TypeError } from '../utils/rttc'
 import { parse } from 'acorn'
 import { generate } from 'astring'
 import * as es from 'estree'
 import { gpuRuntimeTranspile } from './transfomer'
 import { ACORN_PARSE_OPTIONS } from '../constants'
+import { TypeError } from '../utils/rttc'
+
+const pr = (pre: string, string: string | undefined): void => {
+  process.stdout.write(pre + ': ' + string + '\n')
+}
 
 // Heuristic : Only use GPU if array is bigger than this
 const MAX_SIZE = 200
 
-// helper function to build 2D array output
-function buildArray(arr: Float32Array[][], end: any, res: any) {
-  for (let i = 0; i < end[0]; i++) {
-    res[i] = prettyOutput(arr[i])
-  }
-}
-
-function build2DArray(arr: Float32Array[][], end: any, res: any) {
-  for (let i = 0; i < end[0]; i++) {
-    for (let j = 0; j < end[1]; j++) {
-      res[i][j] = prettyOutput(arr[i][j])
+// helper function to build 1-3 D array output
+function copyArray(res: any, arr: any, end: number[]) {
+  if (end.length === 1) {
+    for (let i = 0; i < end[0]; i++) {
+      arr[i] = res[i]
     }
+    return;
   }
-}
-
-// helper function to build 3D array output
-function build3DArray(arr: Float32Array[][][], end: any, res: any) {
-  for (let i = 0; i < end[0]; i++) {
-    for (let j = 0; j < end[1]; j++) {
-      for (let k = 0; k < end[2]; k++) {
-        res[i][j][k] = prettyOutput(arr[i][j][k])
+  if (end.length === 2) {
+    for (let i = 0; i < end[0]; i++) {
+      arr[i] = []
+      for (let j = 0; j < end[1]; j++) {
+        arr[i][j] = res[i][j]
       }
     }
+    return;
   }
-}
-
-function prettyOutput(arr: any): any {
-  if (!(arr instanceof Float32Array)) {
-    return arr
+  if (end.length === 3) {
+    for (let i = 0; i < end[0]; i++) {
+      arr[i] = []
+      for (let j = 0; j < end[1]; j++) {
+        arr[i][j] = []
+        for (let k = 0; k < end[2]; k++) {
+          arr[i][j][k] = res[i][j][k]
+        }
+      }
+    }
+    return;
   }
-
-  const res = arr.map(x => prettyOutput(x))
-  return Array.from(res)
 }
 
 // helper function to check array is initialized
@@ -49,24 +49,6 @@ function checkArray(arr: any): boolean {
   return Array.isArray(arr)
 }
 
-// helper function to check 2D array is initialized
-function checkArray2D(arr: any, end: any): boolean {
-  for (let i = 0; i < end[0]; i = i + 1) {
-    if (!Array.isArray(arr[i])) return false
-  }
-  return true
-}
-
-// helper function to check 3D array is initialized
-function checkArray3D(arr: any, end: any): boolean {
-  for (let i = 0; i < end[0]; i = i + 1) {
-    if (!Array.isArray(arr[i])) return false
-    for (let j = 0; j < end[1]; j = j + 1) {
-      if (!Array.isArray(arr[i][j])) return false
-    }
-  }
-  return true
-}
 
 /*
  * we only use the gpu if:
@@ -133,7 +115,7 @@ function manualRun(f: any, end: any, res: any) {
  * @f : function run as on GPU threads
  * @arr : array to be written to
  */
-export function __createKernel(end: any, extern: any, f: any, arr: any, f2: any) {
+export function __createKernel(end: any, extern: any, externFn: any[], f: any, arr: any, f2: any) {
   const gpu = new GPU()
 
   // check array is initialized properly
@@ -143,22 +125,26 @@ export function __createKernel(end: any, extern: any, f: any, arr: any, f2: any)
     err = typeof arr
   }
 
-  // TODO: find a cleaner way to do this
-  if (end.length > 1) {
-    ok = ok && checkArray2D(arr, end)
-    if (!ok) {
-      err = 'undefined'
-    }
-  }
-
-  if (end.length > 2) {
-    ok = ok && checkArray3D(arr, end)
-    if (!ok) {
-      err = 'undefined'
-    }
-  }
-
-  if (!ok) {
+  // // TODO: find a cleaner way to do this
+  // if (end.length > 1) {
+  //   ok = ok && checkArray2D(arr, end)
+  //   if (!ok) {
+  //     err = 'undefined'
+  //   }
+  // }
+  //
+  // if (end.length > 2) {
+  //   ok = ok && checkArray3D(arr, end)
+  //   if (!ok) {
+  //     err = 'undefined'
+  //   }
+  // }
+  // err;
+  //
+  // if (!ok) {
+  //   throw new TypeError(arr, '', 'object or array', err)
+  // }
+  if (!Array.isArray(arr)) {
     throw new TypeError(arr, '', 'object or array', err)
   }
 
@@ -177,17 +163,27 @@ export function __createKernel(end: any, extern: any, f: any, arr: any, f2: any)
   // external variables to be in the GPU
   const out = { constants: {} }
   out.constants = extern
-
+  externFn.forEach((x)=>gpu.addFunction(x))
   const gpuFunction = gpu.createKernel(f, out).setOutput(nend)
+  pr("added fn", "OK")
   const res = gpuFunction() as any
-  if (end.length === 1) buildArray(res, end, arr)
-  if (end.length === 2) build2DArray(res, end, arr)
-  if (end.length === 3) build3DArray(res, end, arr)
+  pr("ran fn", "OK")
+
+  // Output from gpu is Float32Array[] for 2 dim and Float32Array[][] for 3 dim
+  // if we copy the output to our target array, we incur O(n^<dimensions>) cost
+  // if we dont copy over: we have to be content with the FloatArray32 and set
+  // any references to the target array to our new output array
+
+  // uncomment to incur O(n^<dimensions>) for full "correctness"
+  // if (end.length === 2) res = res.map((x : any) => Array.from(x));
+  // if (end.length === 3) res = res.map((x : any) => Array.from(x));
+  copyArray(res, arr, end)
+  return res
 }
 
 function entriesToObject(entries: [string, any][]): any {
   const res = {}
-  entries.forEach(([key, value]) => (res[key] = value))
+  entries.forEach(([key, value]) => {res[key] = value})
   return res
 }
 
@@ -207,20 +203,27 @@ export function __createKernelSource(
   kernelId: number
 ) {
   const extern = entriesToObject(externSource)
+  const externFn = [];
+  for (const prop in extern) {
+    if (typeof extern[prop] === "function") {
+      externFn.push(extern[prop])
+      delete extern[prop]
+    }
+  }
 
   const memoizedf = kernels.get(kernelId)
   if (memoizedf !== undefined) {
-    return __createKernel(end, extern, memoizedf, arr, f)
+    return __createKernel(end, extern, externFn, memoizedf, arr, f)
   }
 
   const code = f.toString()
   // We don't need the full source parser here because it's already validated at transpile time.
   const ast = (parse(code, ACORN_PARSE_OPTIONS) as unknown) as es.Program
   const body = (ast.body[0] as es.ExpressionStatement).expression as es.ArrowFunctionExpression
-  const newBody = gpuRuntimeTranspile(body, new Set(localNames))
+  const newBody = gpuRuntimeTranspile(body, new Set(extern.keys()), new Set(localNames))
   const kernel = new Function(generate(newBody))
-
   kernels.set(kernelId, kernel)
+  pr("gpuRuntimeTranspile", "OK")
 
-  return __createKernel(end, extern, kernel, arr, f)
+  return __createKernel(end, extern, externFn, kernel, arr, f)
 }
