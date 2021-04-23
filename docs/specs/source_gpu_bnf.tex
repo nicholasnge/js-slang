@@ -4,7 +4,7 @@
     && \textbf{\texttt{for}}\ \textbf{\texttt{(}} 
                               \ \textit{gpu\_for\_let} \textbf{\texttt{;}} \\
     &&  &&     &\quad && \ \ \ \ \ \ \ \  \textit{gpu\_condition} \textbf{\texttt{;}} \\
-    &&  &&     &\quad && \ \ \ \ \ \ \ \  \textit{gpu\_for\_assignment} \ \textbf{\texttt{)}}  \ gpu\_block \textbf{\texttt{;}} \\
+    &&  &&     &\quad && \ \ \ \ \ \ \ \  \textit{gpu\_for\_assignment} \ \textbf{\texttt{)}}  \ \textit{gpu\_block} \textbf{\texttt{;}} \\
     && \textit{gpu\_for\_let} 
     &&\quad ::= &\quad 
     && \textbf{\texttt{let}}\  \textit{name} \ 
@@ -19,10 +19,13 @@
     && \textit{name} \ \textbf{\texttt{=}}\  \textit{name} \  \textbf{\texttt{+}} \ \textbf{\texttt{1}} \  \textbf{\texttt{;}} \\
     && \textit{gpu\_block} 
     &&\quad ::= &\quad 
-    && \{ \ \textit{gpu\_statement} \ \} \ | \ \{ \ \textit{core\_statements} \ \} \\
+    && \{ \ \textit{gpu\_nested\_array\_init} \ \} \ | \ \{ \ \textit{gpu\_statement} \ \} \ | \ \{ \ \textit{core\_statements} \ \} \\
+    && \textit{gpu\_nested\_array\_init} 
+    &&\quad ::= &\quad     
+    && \textit{gpu\_expression} \ \textbf{\texttt{[}} \ \textit{gpu\_expression} \textbf{\texttt{]}} \ \textbf{\texttt{=[];}} \ \textit{gpu\_statement} \ \textbf{\texttt{;}} \\
     && \textit{core\_statements} 
     &&\quad ::= &\quad 
-    && \textit{core\_statement} {\ldots} \ \textit{gpu\_result\_assignment} \\
+    && ( \ \textit{core\_statement} \ | \ \textit{gpu\_result\_assignment} \ ) \ {\ldots} \\
     && \textit{gpu\_result\_assignment} 
     &&\quad ::= &\quad 
     && \textit{gpu\_access} \textbf{\texttt{[}} \textit{gpu\_name} \textbf{\texttt{]}}\ \textbf{\texttt{=}}\  \textit{gpu\_result} \ \textbf{\texttt{;}} \\
@@ -42,7 +45,7 @@
     &&  && |    &\quad &&  \textbf{\texttt{for}}\ \textbf{\texttt{(}} 
                               \  ( \ \textit{gpu\_assignment} \ | \ \textit{gpu\_let} \ )\textbf{\texttt{;}} \\
     &&  &&     &\quad && \ \ \ \ \ \ \ \  \textit{gpu\_expression} \textbf{\texttt{;}} \\
-    &&  &&     &\quad && \ \ \ \ \ \ \ \  \textit{gpu\_assignment} \ ) \ gpu\_block \\
+    &&  &&     &\quad && \ \ \ \ \ \ \ \  \textit{gpu\_assignment} \ \textbf{\texttt{)}}  \ \textit{gpu\_block} \textbf{\texttt{;}} \\
     && \textit{gpu\_assignment} 
     &&\quad ::= &\quad 
     && \textit{name} \ \textbf{\texttt{=}}\  \textit{gpu\_expression} \\

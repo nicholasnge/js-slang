@@ -2,7 +2,7 @@
 
 \begin{document}
 	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-	\docheader{2021}{Source}{\S 4 GPU}{Martin Henz, Rahul Rajesh, Zhang Yuntong}
+	\docheader{2021}{Source}{\S 4 GPU}{Martin Henz, Rahul Rajesh, Zhang Yuntong, Nicholas Nge, Zhu Ziying}
 	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \input source_intro.tex
@@ -13,7 +13,10 @@ Source \S 4 GPU allows for Source programs to be accelerated on the GPU if certa
 The exact specifications for this is outlined on page \pageref{gpu_supp}. Source \S 4 GPU  defines a formal specification 
 to identify areas in the program that are embarrssingly parallel (e.g. for loops etc.) . These will then
 be run in parallel across GPU threads. Experimentation has shown that Source \S 4 GPU is orders of magnitude faster
-than Source \S 4 for heavy CPU bound tasks (matrix multiplication of large matrices)
+than Source \S 4 for heavy CPU bound tasks (matrix multiplication of large matrices)\\
+
+This document also records the improvements made to the \S 4 Source GPU in Semester 1 of 2021. The improvements have been incorporated into the GPU section of this specification, and a separate section has been included detailing the changes made.
+
 
 \input source_bnf.tex
 
@@ -94,7 +97,15 @@ These are the loops that will be taken into consideration for parallelization. H
 
 \subsection*{GPU Function}
 
-A \textit{gpu\_function} has to be a \textit{math\_\texttt{*}} function
+A \textit{gpu\_function} has to be a \textit{math\_\texttt{*}} function or meet the following criteria:
+
+\begin{itemize}
+    \item{no function call to another function within the function loop (including recursive calls to itself)}
+    \item{function is defined by the user (no use of library functions)}
+\end{itemize}
+
+Notably, the common library functions such as \textit{pair}, \textit{list} etc not are supported. Given the above restrictions, only simple functions such as arithmetic are permitted currently.
+
 
 \subsection*{Core Statement}
 
@@ -102,8 +113,10 @@ Within \textit{core\_statement}, there are some constraints:
 
 \begin{itemize}
     \item{no assignment to any global variables (all assignments can only be done to variables defined in the \textit{gpu\_block}})
-    \item{no use of the variable in \textit{gpu\_result\_assignment} at an offset from the current index e.g. cannot be i - 1}
+    \item{no assignment to a variable in \textit{gpu\_result\_assignment} at an offset from the current index e.g. cannot be i - 1}
 \end{itemize}
+
+Notably, referencing other arrays and other constants defined outside the scope of the function body is allowed, but assignment to them is not. This follows from the nature of the GPU architecture, where GPU cores return a Float32 number for each computation (shader), meaning that side effects such as assignment to another global variable is not reflected. 
 
 \subsection*{GPU Result Statement}
 
@@ -112,11 +125,14 @@ It access an array at a certain coordinate e.g. ${array[{i_1}][{i_2}][{i_3}]}$. 
 
 \begin{itemize}
     \item{This result array has to be defined outside the \textit{gpu\_block}.}
+    \item{Creation of the nested arrays in nested for-loops can be included in the body of a for-loop}
     \item{The sequence of coordinates which we access in the result array ${{i_1}, {i_2}, {i_3} ... i_{k}}$ must be a 
         prefix of the special for loop counters ${[c_1,c_2 ... c_n]}$.}
     \item{ If you have ${n}$ special for loops, the array expression can take on ${k}$ coordinates where ${0 < k \leq n}$. 
     The order matters as well, it has to follow the same order as the special for loops: you cannot have ${name[c_2][c_1]}$.}
 \end{itemize}
+
+Notably, in nested for-loop declarations, the only statement allowed in between loop-declarations is the creation of nested arrays in the output array. This is reflected in the \textit{gpu\_nested\_array\_init} in the specification in the earlier section. 
 
 \section*{Examples}
 
@@ -125,8 +141,9 @@ Below are some examples of valid and invalid source gpu programs:\\
 \textbf{Valid} - Using first loop counter. (meaning the loop will be run across N threads; the first loop is parallelized away):
 \begin{verbatim}
 for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
     for (let k = 0; k < M; k = k + 1) {
-        res[i] = arr[k % 2] + 1;
+        res[i][k] = i + k + 1;
     }
 }
 \end{verbatim}
@@ -134,6 +151,7 @@ for (let i = 0; i < N; i = i + 1) {
 \textbf{Invalid} - Counter used is not a prefix of for loop counters:
 \begin{verbatim}
 for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
     for (let k = 0; k < M; k = k + 1) {
         res[k] = arr[i % 2] + 1;
     }
@@ -143,7 +161,9 @@ for (let i = 0; i < N; i = i + 1) {
 \textbf{Valid} - Using first three loop counters (meaning the loop will be run across N*M*C threads, if available):
 \begin{verbatim}
 for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
     for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = [];
         for (let k = 0; k < C; k = k + 1) {
             let x = math_pow(2, 10);
             let y = x * (1000);
@@ -156,7 +176,9 @@ for (let i = 0; i < N; i = i + 1) {
 \textbf{Invalid} - Indices are in wrong order (must respect for loop counter orders):
 \begin{verbatim}
 for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
     for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = [];
         for (let k = 0; k < C; k = k + 1) {
             let x = math_pow(2, 10);
             let y = x * (1000);
@@ -169,13 +191,136 @@ for (let i = 0; i < N; i = i + 1) {
 \textbf{Invalid} - Using an index that is not part of a special for loop (see above):
 \begin{verbatim}
 for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
     for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = [];
         for (let k = 1; k < C; k = k + 2) {
             res[k] = arr1[i] + arr2[j];
         }
     }
 }
 \end{verbatim}
+
+\textbf{Valid} - Use of allowed GPU functions:
+\begin{verbatim}
+function fn (x, y){
+	return x + y * 2;
+}
+
+for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
+    for (let k = 0; k < M; k = k + 1) {
+        res[i][k] = fn(i, k);
+    }
+}
+\end{verbatim}
+
+\textbf{Invalid} - Use of recursive functions, or functions that call other functions:
+\begin{verbatim}
+function fib (x){
+	return x <= 0 ? 0 : fib(x-1) + 1;
+}
+
+for (let i = 0; i < N; i = i + 1) {
+    res[i] = fib(i);
+}
+\end{verbatim}
+
+\textbf{Valid} - Referencing a global variable (in the case of the second loop). In this case, both for loops will be optimized by the GPU. Note that the second loop is assigning to a different array, but assigning to the same array will also be permittable, provided there are no 'side effect' assignments 
+\begin{verbatim}
+for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
+    for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = i + j;
+    }
+}
+
+for (let i = 0; i < N; i = i + 1) {
+    res2[i] = [];
+    for (let j = 0; j < M; j = j + 1) {
+        let x = res[i][j];
+        let y = math_abs(x * -5);
+        res2[i][j] = x + y;
+    }
+}
+\end{verbatim}
+
+\textbf{Valid} - Multiple references to global variables and target variable, and multiple assignments to target variable (Recall that multiple references to global variables is permitted, but only multiple assignments to the target variable is permitted).
+\begin{verbatim}
+for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
+    for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = i + j;
+    }
+}
+
+for (let i = 0; i < N; i = i + 1) {
+    res2[i] = [];
+    for (let j = 0; j < M; j = j + 1) {
+        res2[i][j] = res[i][j];
+        res2[i][j] = res2[i][j] * 2;
+        res2[i][j] = res[i][j] + res2[i][j] + 3;
+    }
+}
+\end{verbatim}
+
+\section*{Improvements}
+
+This section documents the changes made in Semester 1 2021 by Lab 4 GPU group Nicholas and Ziying as part of the CS4215 project. Technically, this is not officially part of the specification but serves as a "developer guide" for our changes made.
+
+\subsection*{Nested Array Creation}
+
+In the previous iteration of \S 4 GPU, one overlooked detail was how nested array creation was messing up our detection of nested loops. Whenever a statement for the creation of the nested array was positioned within the body of a for-loop, the detection of deeper, nested for-loops terminated early, leading to reduced optimization (eg. In a 2-layer for-loop, only the first is optimized)
+ 
+\begin{verbatim}
+for (let i = 0; i < N; i = i + 1) {
+    for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = i + j;
+    }
+}
+\end{verbatim}
+In this first case, both loops are optimized. (The nested arrays may have be declared elsewhere)
+
+\begin{verbatim}
+for (let i = 0; i < N; i = i + 1) {
+    res[i] = [];
+    for (let j = 0; j < M; j = j + 1) {
+        res[i][j] = i + j;
+    }
+}
+\end{verbatim}
+In this second case, the second loop had been run sequentially. Our changes made it such that nested loops would be unaffected by the nested array creation (Now \textit{gpu\_nested\_array\_init} is part of the specification).
+
+
+\subsection*{Custom functions}
+
+Previously, only \textit{math\_\texttt{*}} functions were supported by the implementation. We included the ability to include custom functions with certain restrictions as detailed in the above section.\\
+
+One clear limitation is that the set of functions permitted is still small after this change, since we cannot use complex functions or functions defined in other libraries. In my view, there are two challenges ahead if we are to expand this set of functions. \\
+
+Firstly, we are still currently working with Float32 array outputs from GPU.js. This limits the kind of outputs we can have, and I was not skilled enough to find an alternative...\\
+
+Secondly, GPU cores are pretty bad at handling deep call stacks. Currently, recursion is forbidden in GPU.js (and probably for good reason), and our team did not have time to implement support for custom functions that call other custom functions. Perhaps this is a possible area for improvement?
+
+
+\subsection*{Multiple references/assignments within loop body}
+
+In previous iteration, an array assignment to the target variable was mutated into a return statement in the resultant transpiled shader function. We improved upon that by allowing multiple references/assignments to the target variable within the loop body, which was previously not allowed (since that would create multiple return statements).\\
+
+First, we introduce a temporary variable in the loop body and let references/assignments to the target variable refer to this temporary variable instead. Then, we return this variable at the end of the loop body.\\
+
+Some subtle details: In other not to wrongly turn a reference to the original value of the target variable to a reference of the temporary variable (initialized as 0), we require the following rules:
+\begin{itemize}
+    \item{If target variable is an \textit{assignment}, change \textit{identifier} to \textit{identifier} of temporary variable}
+    \item{If target variable is a \textit{reference}, change \textit{identifier} to \textit{identifier} of temporary variable only if already target variable is already assigned within statements in loop body}
+\end{itemize}
+
+
+\subsection*{Other Assorted Bug Fixes}
+In the previous iteration of \S 4 GPU, smaller loops under the size of 100 are left undisturbed and sequentially run since the overhead for GPU optimization would outweigh the savings from parallelization.\\
+
+However, this was especially problematic as we found that many of the existing test cases were actually failing while appearing to be passing, due to the minimum size of arrays not being hit and sequential execution hiding the faults. Hence, our changes also include various bug fixes, though they will not be elaborated upon.
+
 
 \newpage
 

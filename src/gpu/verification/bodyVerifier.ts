@@ -9,9 +9,6 @@ import { simple, make } from '../../utils/walkers'
  *   @localVar: local variables in the body
  *   @outputArray: array that is being written to
  */
-const pr = (pre: string, string: string | undefined): void => {
-  process.stdout.write(pre + ': ' + string + '\n')
-}
 
 class GPUBodyVerifier {
   program: es.Program
@@ -67,7 +64,6 @@ class GPUBodyVerifier {
     if (!ok) {
       return
     }
-    pr("1", "OK");
     // 2. check function calls are only to math_*
     // const mathFuncCheck = new RegExp(/^math_[a-z]+$/)
     simple(node, {
@@ -88,7 +84,6 @@ class GPUBodyVerifier {
     if (!ok) {
       return
     }
-    pr("2", "OK");
 
     // 3. check there is only ONE assignment to a global result variable
 
@@ -123,12 +118,6 @@ class GPUBodyVerifier {
         resultExpr.push(nx)
       }
     })
-
-    // too many assignments!
-    // if (resultExpr.length !== 1) {
-    //   return
-    // }
-    pr("3", "OK");
 
     // 4. check assigning to array at specific indices
 
@@ -167,7 +156,6 @@ class GPUBodyVerifier {
       // tslint:disable-next-line
       make({ MemberExpression: () => {} })
     )
-    pr("4", "OK");
 
     if (!ok) {
       return

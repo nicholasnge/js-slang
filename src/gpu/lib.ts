@@ -6,10 +6,6 @@ import { gpuRuntimeTranspile } from './transfomer'
 import { ACORN_PARSE_OPTIONS } from '../constants'
 import { TypeError } from '../utils/rttc'
 
-const pr = (pre: string, string: string | undefined): void => {
-  process.stdout.write(pre + ': ' + string + '\n')
-}
-
 // Heuristic : Only use GPU if array is bigger than this
 const MAX_SIZE = 200
 
@@ -165,9 +161,7 @@ export function __createKernel(end: any, extern: any, externFn: any[], f: any, a
   out.constants = extern
   externFn.forEach((x)=>gpu.addFunction(x))
   const gpuFunction = gpu.createKernel(f, out).setOutput(nend)
-  pr("added fn", "OK")
   const res = gpuFunction() as any
-  pr("ran fn", "OK")
 
   // Output from gpu is Float32Array[] for 2 dim and Float32Array[][] for 3 dim
   // if we copy the output to our target array, we incur O(n^<dimensions>) cost
@@ -202,7 +196,7 @@ export function __createKernelSource(
   f: any,
   kernelId: number
 ) {
-  const extern = entriesToObject(externSource)
+  const extern :any = entriesToObject(externSource)
   const externFn = [];
   for (const prop in extern) {
     if (typeof extern[prop] === "function") {
@@ -220,10 +214,10 @@ export function __createKernelSource(
   // We don't need the full source parser here because it's already validated at transpile time.
   const ast = (parse(code, ACORN_PARSE_OPTIONS) as unknown) as es.Program
   const body = (ast.body[0] as es.ExpressionStatement).expression as es.ArrowFunctionExpression
-  const newBody = gpuRuntimeTranspile(body, new Set(extern.keys()), new Set(localNames))
+  const newBody = gpuRuntimeTranspile(body, new Set(extern.keys), externFn, new Set(localNames))
+
   const kernel = new Function(generate(newBody))
   kernels.set(kernelId, kernel)
-  pr("gpuRuntimeTranspile", "OK")
 
   return __createKernel(end, extern, externFn, kernel, arr, f)
 }

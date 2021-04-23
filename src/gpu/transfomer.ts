@@ -4,12 +4,6 @@ import * as create from '../utils/astCreator'
 import GPULoopVerifier from './verification/loopVerifier'
 import GPUBodyVerifier from './verification/bodyVerifier'
 import { BlockStatement, Identifier, ReturnStatement, VariableDeclaration } from 'estree'
-import { generate } from 'astring'
-
-
-const pr = (pre: string, string: string | undefined): void => {
-  process.stdout.write(pre + ': ' + string + '\n')
-}
 
 let currentKernelId = 0
 
@@ -84,7 +78,6 @@ class GPUTransformer {
    * 5. Call __createKernelSource and assign it to our external variable
    */
   gpuTranspile = (node: es.ForStatement): number => {
-    // pr('gpu transpile node', node.body.loc?.start.line.toString())
     // initialize our class variables
     this.state = 0
     this.counters = [] // let i =0: i
@@ -99,7 +92,6 @@ class GPUTransformer {
 
     const verifier = new GPUBodyVerifier(this.program, this.innerBody, this.counters)
     if (verifier.state === 0) {
-      pr('VERIFIER STATE = 0', '')
       return 0
     }
 
@@ -114,7 +106,6 @@ class GPUTransformer {
     // 3. Build a AST Node of all outer variables
     const externEntries: [es.Literal, es.Expression][] = []
     for (const key in this.outerVariables) {
-      pr('outer variable key', key)
       if (this.outerVariables.hasOwnProperty(key)) {
         const val = this.outerVariables[key]
 
@@ -125,7 +116,6 @@ class GPUTransformer {
     }
 
     // 4. Change assignment in body to a return statement
-    // pr('target body', (this.targetBody as BlockStatement).body.length.toString())
     const temp: Identifier = create.identifier(this.tempVarName)
     const declarator = create.variableDeclarator(temp, create.literal(0)) // initialise to 0
     const addToFront = create.variableDeclaration([declarator], 'let') as VariableDeclaration
@@ -170,7 +160,6 @@ class GPUTransformer {
     while (currForLoop.type === 'ForStatement') {
       // check if the conditions for gpu are met
       const detector = new GPULoopVerifier(currForLoop)
-      pr('detector', detector.ok ? 'true' : 'false')
 
       if (!detector.ok) {
         return
@@ -179,7 +168,6 @@ class GPUTransformer {
       this.innerBody = currForLoop.body
       this.counters.push(detector.counter) // counter is i in let i=0
       this.end.push(detector.end) // end is the number that ends the for loop: <=10 means end = 10
-      // pr("loop inner body type", this.innerBody.type)
 
       if (this.innerBody.type !== 'BlockStatement') {
         return
@@ -221,7 +209,6 @@ class GPUTransformer {
         }
       }
 
-      // pr("loop inner body first line", this.innerBody.body[0].type)
       currForLoop = this.innerBody.body[0]
     }
   }
@@ -293,10 +280,18 @@ class GPUTransformer {
         if (ancstor[ancstor.length - 2].type === 'CallExpression' && node.name.startsWith('math_')) {
           return
         }
+        // CASE 4: identifier is some other function
+        // ACTION: Put it in localVariables instead of outer variables
+        if (ancstor[ancstor.length - 2].type === 'CallExpression') {
+          localVar.add(node.name);
+          varDefinitions[node.name] = node
+          return
+        }
         varDefinitions[node.name] = node
       }
     })
     this.outerVariables = varDefinitions
+    this.localVar = localVar
   }
 }
 
@@ -310,6 +305,7 @@ class GPUTransformer {
 export function gpuRuntimeTranspile(
   node: es.ArrowFunctionExpression,
   extern: any,
+  externFn: any,
   localNames: Set<string>
 ): es.BlockStatement {
   // Contains counters
@@ -350,9 +346,7 @@ export function gpuRuntimeTranspile(
   simple(body, {
     Identifier(nx: es.Identifier) {
       // ignore these names
-      // if (ignoredNames.has(nx.name) || localNames.has(nx.name)) {
       if (ignoredNames.has(nx.name) || localNames.has(nx.name)) {
-        console.log('nx name: ' + nx.name)
         return
       }
 
@@ -397,7 +391,6 @@ export function gpuRuntimeTranspile(
       )
     }
   })
-  console.log('body: ' + generate(body))
   return body
 }
 

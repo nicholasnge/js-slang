@@ -5,6 +5,7 @@ import { TypeError } from '../../utils/rttc'
 test('__createKernel with uninitialized array throws error', () => {
   const bounds = [5, 4]
   const extern = {}
+  const externFn: any[] = []
   const f1 = function (this: any) {
     return this.thread.y * this.thread.x
   }
@@ -14,13 +15,14 @@ test('__createKernel with uninitialized array throws error', () => {
   const f2 = function (i: any, j: any) {
     return i * j
   }
-  const f = () => __createKernel(bounds, extern, f1, arr, f2)
+  const f = () => __createKernel(bounds, extern, externFn, f1, arr, f2)
   expect(f).toThrow(TypeError)
 })
 
 test('__createKernel with 2 loops + uninitialized array throws error', () => {
   const bounds = [5, 4, 3]
   const extern = {}
+  const externFn: any[] = []
   const f1 = function (this: any) {
     return this.thread.z * this.thread.y * this.thread.x
   }
@@ -33,6 +35,6 @@ test('__createKernel with 2 loops + uninitialized array throws error', () => {
   const f2 = function (i: any, j: any, k: any) {
     return i * j * k
   }
-  const f = () => __createKernel(bounds, extern, f1, arr, f2)
+  const f = () => __createKernel(bounds, extern, externFn, f1, arr, f2)
   expect(f).toThrow(TypeError)
 })
